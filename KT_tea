@@ -1,0 +1,279 @@
+-- ETW AUTO GROUP EXTRACT
+-- Extracted from the decoded ETW payload.
+-- Contains: Auto Farm, Auto Collect, Auto Claim, Move Mode, Show Map, Auto Eat.
+-- This is a code fragment, not a standalone script.
+-- It expects the original script to define: mainUI, LocalPlayer, Events, config,
+-- autoSaveConfig, and the game-specific objects/functions used below.
+-- Insert where the original script creates the Auto section.
+
+local autoSection = mainUI:NewSection("Auto")
+autoSection:CreateToggle("Auto Farm", function(enabled)
+    autofarm = enabled
+    config.autofarm = enabled
+    autoSaveConfig()
+    coroutine.wrap(function()
+        local text = Drawing.new("Text")
+        text.Outline = true
+        text.OutlineColor = Color3.new(0, 0, 0)
+        text.Color = Color3.new(1, 1, 1)
+        text.Center = false
+        text.Position = Vector2.new(64, 64)
+        text.Text = ""
+        text.Size = 14
+        text.Visible = true
+        local startTime = tick()
+        local eatTime = 0
+        local lastEatTime = tick()
+        local timer = 0
+        local grabTimer = 0
+        local sellDebounce = false
+        local sellCount = 0
+        local bedrock = Instance.new("Part")
+        bedrock.Anchored = true
+        bedrock.Size = Vector3.new(2048, 10, 2048)
+        bedrock.Position = Vector3.new(0, -5, 0)
+        bedrock.BrickColor = BrickColor.Black()
+        bedrock.Parent = workspace
+        local map, chunks = workspace:FindFirstChild("Map"), workspace:FindFirstChild("Chunks")
+        if map and chunks then
+            map.Parent, chunks.Parent = nil, nil
+        end
+        local numChunks = 0
+        local hum,
+            root,
+            size,
+            events,
+            eat,
+            grab,
+            sell,
+            sendTrack,
+            chunk,
+            radius,
+            autoConn,
+            sizeConn
+        local function onCharAdd(char)
+            numChunks = 0
+            hum = char:WaitForChild("Humanoid")
+            root = char:WaitForChild("HumanoidRootPart")
+            size = char:WaitForChild("Size")
+            events = char:WaitForChild("Events")
+            eat = events:WaitForChild("Eat")
+            grab = events:WaitForChild("Grab")
+            sell = events:WaitForChild("Sell")
+            chunk = char:WaitForChild("CurrentChunk")
+            sendTrack = char:WaitForChild("SendTrack")
+            radius = char:WaitForChild("Radius")
+            autoConn = game["Run Service"].Heartbeat:Connect(function(dt)
+                if not autofarm then
+                    autoConn:Disconnect()
+                    return
+                end
+                local ran = tick() - startTime
+                local hours = math.floor(ran / 60 / 60)
+                local minutes = math.floor(ran / 60)
+                local seconds = math.floor(ran)
+                local eatMinutes = math.floor(eatTime / 60)
+                local eatSeconds = math.floor(eatTime)
+                local y = bedrock.Position.Y + bedrock.Size.Y / 2 + hum.HipHeight + root.Size.Y / 2
+                local sizeAdd = LocalPlayer.Upgrades.Multiplier.Value / 100
+                local addAmount = LocalPlayer.Upgrades.MaxSize.Value / sizeAdd
+                local sellTime = addAmount / 2
+                local sellMinutes = math.floor(sellTime / 60)
+                local sellSeconds = math.floor(sellTime)
+                local secondEarn = math.floor(((LocalPlayer.Upgrades.MaxSize.Value + 0.5) ^ 2 - 0.25) / 2 * 100 / sellTime)
+                local minuteEarn = secondEarn * 60
+                local hourEarn = minuteEarn * 60
+                local dayEarn = hourEarn * 24
+                text.Text = ""
+                    .. "\nRun Time: " .. string.format("%ih%im%is", hours, minutes % 60, seconds % 60)
+                    .. "\nActual Time: " .. string.format("%im%is", eatMinutes % 60, eatSeconds % 60)
+                    .. "\nEstimated Time: " .. string.format("%im%is", sellMinutes % 60, sellSeconds % 60)
+                    .. "\nDaily Income: " .. dayEarn
+                    .. "\nBlock Count: " .. numChunks
+                hum:ChangeState(Enum.HumanoidStateType.Physics)
+                grab:FireServer()
+                root.Anchored = false
+                eat:FireServer()
+                sendTrack:FireServer()
+                if chunk.Value then
+                    if timer > 0 then
+                        numChunks += 1
+                    end
+                    timer = 0
+                    grabTimer += dt
+                else
+                    timer += dt
+                    grabTimer = 0
+                end
+                if timer > 60 then
+                    hum.Health = 0
+                    timer = 0
+                    numChunks = 0
+                end
+                if grabTimer > 15 then
+                    size.Value = LocalPlayer.Upgrades.MaxSize.Value
+                end
+                if (size.Value >= LocalPlayer.Upgrades.MaxSize.Value)
+                    or timer > 8
+                then
+                    if timer < 8 then
+                        sell:FireServer()
+                        if not sellDebounce then
+                            local args = {
+                                {
+                                    MapTime = -1,
+                                    Paused = true
+                                }
+                            }
+                            Events.SetServerSettings:FireServer(unpack(args))
+                        end
+                        sellDebounce = true
+                    else
+                        local args = {
+                            {
+                                MapTime = -1,
+                                Paused = true
+                            }
+                        }
+                        Events.SetServerSettings:FireServer(unpack(args))
+                    end
+                    numChunks = 0
+                elseif size.Value == 0 then
+                    if sellDebounce then
+                        local currentEatTime = tick()
+                        eatTime = currentEatTime - lastEatTime
+                        lastEatTime = currentEatTime
+                        sellCount += 1
+                    end
+                    sellDebounce = false
+                end
+                if farmMoving then
+                    local bound = 300
+                    local startPos = CFrame.new(-bound/2, y, -bound/2)
+                    local r = radius.Value * 1.1
+                    local dist = (r * numChunks)
+                    local x = dist % bound
+                    local z = math.floor(dist / bound) * r
+                    local offset = CFrame.new(x, 0, z + r * 2)
+                    if z > bound then
+                        local args = {
+                            {
+                                MapTime = -1,
+                                Paused = true
+                            }
+                        }
+                        Events.SetServerSettings:FireServer(unpack(args))
+                        numChunks = 0
+                    end
+                    root.CFrame = startPos * offset
+                else
+                    root.CFrame = CFrame.new(0, y, 0)
+                end
+            end)
+            hum.Died:Connect(function()
+                autoConn:Disconnect()
+                local args = {
+                    {
+                        MapTime = -1,
+                        Paused = true
+                    }
+                }
+                Events.SetServerSettings:FireServer(unpack(args))
+            end)
+            char:WaitForChild("LocalChunkManager").Enabled = false
+            char:WaitForChild("Animate").Enabled = false
+        end
+        if LocalPlayer.Character then
+            task.spawn(onCharAdd, LocalPlayer.Character)
+        else
+            task.spawn(onCharAdd, LocalPlayer.CharacterAdded:Wait())
+        end
+        local charAddConn = LocalPlayer.CharacterAdded:Connect(onCharAdd)
+        while autofarm do
+            local dt = task.wait()
+            if workspace:FindFirstChild("Loading") then
+                workspace.Loading:Destroy()
+            end
+            if map and chunks then
+                if showMap then
+                    map.Parent, chunks.Parent = workspace, workspace
+                else
+                    map.Parent, chunks.Parent = nil, nil
+                end
+            end
+        end
+        charAddConn:Disconnect()
+        if autoConn then
+            autoConn:Disconnect()
+        end
+        if map and chunks then
+            map.Parent, chunks.Parent = workspace, workspace
+        end
+        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+        bedrock:Destroy()
+        LocalPlayer.Character.LocalChunkManager.Enabled = true
+        LocalPlayer.Character.Animate.Enabled = true
+        text:Destroy()
+    end)()
+end)
+autoSection:CreateToggle("Auto Collect", function(enabled)
+    autoCollectingCubes = enabled
+    config.autoCollectingCubes = enabled
+    autoSaveConfig()
+    coroutine.wrap(function()
+        LocalPlayer.PlayerScripts.CubeVis.Enabled = false
+        while autoCollectingCubes do
+            task.wait()
+            local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if root then
+                for _, v in workspace:GetChildren() do
+                    if v.Name == "Cube" and v:FindFirstChild("Owner") and (v.Owner.Value == LocalPlayer.Name or v.Owner.Value == "") then
+                        v.CFrame = root.CFrame
+                    end
+                end
+            end
+        end
+        LocalPlayer.PlayerScripts.CubeVis.Enabled = true
+    end)()
+end)
+autoSection:CreateToggle("Auto Claim", function(enabled)
+    autoClaimRewards = enabled
+    config.autoClaimRewards = enabled
+    autoSaveConfig()
+    coroutine.wrap(function()
+        while autoClaimRewards do
+            task.wait(1)
+            for _, reward in LocalPlayer.TimedRewards:GetChildren() do
+                if reward.Value > 0 then
+                    Events.RewardEvent:FireServer(reward)
+                end
+            end
+            Events.SpinEvent:FireServer()
+        end
+    end)()
+end)
+autoSection:CreateToggle("Move Mode", function(enabled)
+    farmMoving = enabled
+    config.farmMoving = enabled
+    autoSaveConfig()
+end)
+autoSection:CreateToggle("Show Map", function(enabled)
+    showMap = enabled
+    config.showMap = enabled
+    autoSaveConfig()
+end)
+autoSection:CreateToggle("Auto Eat", function(enabled)
+    autoeat = enabled
+    config.autoeat = enabled
+    autoSaveConfig()
+    coroutine.wrap(function()
+        while autoeat do
+            task.wait()
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") and LocalPlayer.Character:FindFirstChild("Size") and LocalPlayer.Character:FindFirstChild("Events") and LocalPlayer.Character.Events:FindFirstChild("Grab") and LocalPlayer.Character.Events:FindFirstChild("Eat") and LocalPlayer.Character:FindFirstChild("CurrentChunk") then
+                LocalPlayer.Character.HumanoidRootPart.Anchored = false
+                LocalPlayer.Character.Events.Grab:FireServer()
+                LocalPlayer.Character.Events.Eat:FireServer()
+            end
+        end
+    end)()
+end)
