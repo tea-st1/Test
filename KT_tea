@@ -1,3 +1,128 @@
+-- ETW Auto Group - menu initialization patch
+-- This adds a standalone Roblox ScreenGui and adapts the original NewSection/CreateToggle calls.
+-- Feature callbacks still depend on the ETW game's current objects/remotes and may need further fixes.
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+
+local config = {}
+local function autoSaveConfig() end
+local Events = nil
+pcall(function()
+    Events = game:GetService("ReplicatedStorage"):FindFirstChild("Events", true)
+        or workspace:FindFirstChild("Events", true)
+end)
+
+local guiParent = CoreGui
+pcall(function()
+    if not guiParent then guiParent = LocalPlayer:WaitForChild("PlayerGui") end
+end)
+local oldGui = guiParent:FindFirstChild("ETWAutoMenu")
+if oldGui then oldGui:Destroy() end
+
+local screen = Instance.new("ScreenGui")
+screen.Name = "ETWAutoMenu"
+screen.ResetOnSpawn = false
+screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screen.Parent = guiParent
+
+local frame = Instance.new("Frame")
+frame.Name = "Main"
+frame.Size = UDim2.new(0, 240, 0, 300)
+frame.Position = UDim2.new(0, 25, 0.3, 0)
+frame.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
+frame.BorderSizePixel = 0
+frame.Active = true
+frame.Parent = screen
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -42, 0, 38)
+title.Position = UDim2.new(0, 10, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "ETW | AUTO MENU"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 14
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = frame
+
+local close = Instance.new("TextButton")
+close.Size = UDim2.new(0, 30, 0, 28)
+close.Position = UDim2.new(1, -35, 0, 5)
+close.BackgroundColor3 = Color3.fromRGB(170, 55, 55)
+close.Text = "X"
+close.TextColor3 = Color3.new(1, 1, 1)
+close.Font = Enum.Font.GothamBold
+close.TextSize = 13
+close.Parent = frame
+Instance.new("UICorner", close).CornerRadius = UDim.new(0, 5)
+close.MouseButton1Click:Connect(function() screen:Destroy() end)
+
+local body = Instance.new("Frame")
+body.Position = UDim2.new(0, 10, 0, 44)
+body.Size = UDim2.new(1, -20, 1, -54)
+body.BackgroundTransparency = 1
+body.Parent = frame
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0, 6)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Parent = body
+
+local mainUI = {}
+function mainUI:NewSection(_name)
+    local section = {}
+    function section:CreateToggle(label, callback)
+        local enabled = false
+        local button = Instance.new("TextButton")
+        button.Name = label:gsub("%s+", "")
+        button.Size = UDim2.new(1, 0, 0, 32)
+        button.BackgroundColor3 = Color3.fromRGB(55, 55, 65)
+        button.BorderSizePixel = 0
+        button.Text = "[ OFF ]  " .. label
+        button.TextColor3 = Color3.fromRGB(240, 240, 240)
+        button.Font = Enum.Font.Gotham
+        button.TextSize = 12
+        button.Parent = body
+        Instance.new("UICorner", button).CornerRadius = UDim.new(0, 5)
+        button.MouseButton1Click:Connect(function()
+            enabled = not enabled
+            button.Text = (enabled and "[ ON ]   " or "[ OFF ]  ") .. label
+            button.BackgroundColor3 = enabled and Color3.fromRGB(40, 115, 75) or Color3.fromRGB(55, 55, 65)
+            local ok, err = pcall(callback, enabled)
+            if not ok then
+                warn("ETW Auto Menu - " .. label .. ": " .. tostring(err))
+                button.Text = "[ ERROR ] " .. label
+                button.BackgroundColor3 = Color3.fromRGB(150, 55, 55)
+            end
+        end)
+    end
+    return section
+end
+
+-- Drag the menu by its title bar.
+do
+    local dragging, dragStart, startPos
+    title.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+end
+
 -- ETW AUTO GROUP EXTRACT
 -- Extracted from the decoded ETW payload.
 -- Contains: Auto Farm, Auto Collect, Auto Claim, Move Mode, Show Map, Auto Eat.
